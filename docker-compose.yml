@@ -1,0 +1,27 @@
+services:
+  api:
+    build:
+      context: ./backend
+    environment:
+      MEDIA_ROOT: /media
+      VAULT_DATA_DIR: /data
+      VAULT_USERNAME: ${VAULT_USERNAME:-admin}
+      VAULT_PASSWORD: ${VAULT_PASSWORD:-admin}
+      SECRET_KEY: ${SECRET_KEY:-change-me}
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    volumes:
+      - ${MEDIA_ROOT:-./media}:/media:ro
+      - ${VAULT_DATA_DIR:-./.video-vault}:/data
+    ports:
+      - "8000:8000"
+
+  web:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_BASE: http://localhost:8000
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+

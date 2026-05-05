@@ -1,0 +1,9 @@
+.env
+.video-vault/
+media/
+__pycache__/
+.pytest_cache/
+node_modules/
+dist/
+*.pyc
+.tools/
