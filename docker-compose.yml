@@ -18,10 +18,7 @@ services:
   web:
     build:
       context: ./frontend
-    environment:
-      VITE_API_BASE: http://localhost:8000
     ports:
       - "5173:80"
     depends_on:
       - api
-

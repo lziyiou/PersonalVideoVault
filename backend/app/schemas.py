@@ -21,3 +21,8 @@ class ProgressUpdate(BaseModel):
 class RebindRequest(BaseModel):
     media_root: str | None = None
 
+
+class AppSettingsUpdate(BaseModel):
+    media_root: str | None = None
+    username: str | None = None
+    password: str | None = None

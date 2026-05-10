@@ -53,8 +53,15 @@ def clear_session_cookie(response: Response) -> None:
 
 
 def check_password(username: str, password: str, settings: Settings) -> bool:
-    return (
-        hmac.compare_digest(username, settings.username)
-        and hmac.compare_digest(password, settings.password)
-    )
-
+    if not hmac.compare_digest(username, settings.username):
+        return False
+    if settings.password_hash:
+        try:
+            algorithm, salt, expected = settings.password_hash.split("$", 2)
+        except ValueError:
+            return False
+        if algorithm != "pbkdf2_sha256":
+            return False
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 120_000).hex()
+        return hmac.compare_digest(digest, expected)
+    return hmac.compare_digest(password, settings.password)

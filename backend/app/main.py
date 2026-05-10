@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .config import ensure_data_layout, get_settings
@@ -20,8 +20,8 @@ from .media import (
     set_video_tags,
     transcode_to_hls,
 )
-from .models import Favorite, PlaybackHistory, Task, Video
-from .schemas import LoginRequest, ProgressUpdate, RebindRequest, VideoUpdate
+from .models import Favorite, PlaybackHistory, Tag, Task, Video, VideoTag
+from .schemas import AppSettingsUpdate, LoginRequest, ProgressUpdate, RebindRequest, VideoUpdate
 from .security import check_password, clear_session_cookie, require_auth, set_session_cookie
 
 
@@ -44,6 +44,7 @@ app = FastAPI(title="Personal Video Vault", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -102,10 +103,63 @@ def rebind(payload: RebindRequest) -> dict:
 def videos(
     q: str | None = None,
     favorite: bool | None = Query(default=None),
+    tag: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=48, ge=1, le=96),
     db: Session = Depends(get_db),
 ) -> dict:
-    items = [serialize_video(db, video) for video in search_videos(db, q, favorite)]
-    return {"items": items, "total": len(items)}
+    videos_page, total = search_videos(db, q, favorite, tag, page, page_size)
+    items = [serialize_video(db, video) for video in videos_page]
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }
+
+
+@app.get("/api/tags", dependencies=[Depends(require_auth)])
+def tags(db: Session = Depends(get_db)) -> dict:
+    rows = db.execute(
+        select(Tag.name, func.count(VideoTag.video_id))
+        .join(VideoTag, VideoTag.tag_id == Tag.id)
+        .group_by(Tag.id)
+        .order_by(Tag.name)
+    ).all()
+    return {"items": [{"name": name, "count": count} for name, count in rows]}
+
+
+@app.get("/api/settings", dependencies=[Depends(require_auth)])
+def app_settings() -> dict:
+    return {
+        "media_root": str(settings.media_root),
+        "data_root": str(settings.data_root),
+        "username": settings.username,
+        "config_path": str(settings.config_path),
+        "docker_note": "If Docker maps a host folder to /media, change the host path in compose or .env and restart the service.",
+    }
+
+
+@app.patch("/api/settings", dependencies=[Depends(require_auth)])
+def update_settings(payload: AppSettingsUpdate) -> dict:
+    if payload.media_root is not None:
+        media_root = Path(payload.media_root).expanduser().resolve()
+        if not media_root.exists() or not media_root.is_dir():
+            raise HTTPException(status_code=400, detail="Media root must be an existing directory visible to the backend.")
+        settings.media_root = media_root
+    if payload.username is not None:
+        username = payload.username.strip()
+        if not username:
+            raise HTTPException(status_code=400, detail="Username cannot be empty.")
+        settings.username = username
+    if payload.password is not None:
+        if len(payload.password) < 4:
+            raise HTTPException(status_code=400, detail="Password must be at least 4 characters.")
+        settings.set_password(payload.password)
+    settings.save_vault_config()
+    return app_settings()
 
 
 @app.get("/api/videos/{video_id}", dependencies=[Depends(require_auth)])

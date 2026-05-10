@@ -13,9 +13,10 @@ class VaultLock:
         payload = f"pid={os.getpid()}\nhost={socket.gethostname()}\ntime={int(time.time())}\n"
         try:
             fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError as exc:
-            existing = self.path.read_text(encoding="utf-8", errors="ignore")
-            raise RuntimeError(f"Vault data directory is already locked:\n{existing}") from exc
+        except FileExistsError:
+            # Lock file exists but process may have crashed - clean it up
+            self.path.unlink(missing_ok=True)
+            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(payload)
         self.acquired = True

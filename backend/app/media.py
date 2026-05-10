@@ -7,7 +7,7 @@ import mimetypes
 import os
 import subprocess
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from .config import Settings
@@ -235,15 +235,26 @@ def set_video_tags(db: Session, video: Video, names: list[str]) -> None:
         db.add(VideoTag(video_id=video.id, tag_id=tag.id, source="manual"))
 
 
-def search_videos(db: Session, q: str | None, favorite: bool | None) -> list[Video]:
+def search_videos(
+    db: Session,
+    q: str | None,
+    favorite: bool | None,
+    tag: str | None = None,
+    page: int = 1,
+    page_size: int = 48,
+) -> tuple[list[Video], int]:
     stmt = select(Video)
     if q:
         pattern = f"%{q}%"
         stmt = stmt.where(or_(Video.filename.ilike(pattern), Video.user_title.ilike(pattern), Video.notes.ilike(pattern)))
     if favorite:
         stmt = stmt.join(Favorite, Favorite.video_id == Video.id)
-    stmt = stmt.order_by(Video.updated_at.desc())
-    return list(db.scalars(stmt).all())
+    if tag:
+        stmt = stmt.join(VideoTag, VideoTag.video_id == Video.id).join(Tag, Tag.id == VideoTag.tag_id).where(Tag.name == tag)
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    offset = (page - 1) * page_size
+    stmt = stmt.order_by(Video.updated_at.desc()).offset(offset).limit(page_size)
+    return list(db.scalars(stmt).all()), total
 
 
 def mime_type(path: Path) -> str:
