@@ -105,6 +105,7 @@ def generate_thumbnail(settings: Settings, video: Video, source: Path) -> str | 
     target = settings.data_root / "thumbnails" / f"{video.id}.jpg"
     if target.exists():
         return str(target.relative_to(settings.data_root).as_posix())
+    target.parent.mkdir(parents=True, exist_ok=True)
     seek = "00:00:03"
     if video.duration_seconds and video.duration_seconds > 60:
         seek = "00:00:10"
@@ -145,6 +146,8 @@ def scan_library(db: Session, settings: Settings, task: Task | None = None) -> T
     seen: set[str] = set()
     count = 0
     try:
+        if not settings.media_root.exists() or not settings.media_root.is_dir():
+            raise FileNotFoundError(f"Media root is not available: {settings.media_root}")
         for root, _, files in os.walk(settings.media_root):
             for name in files:
                 path = Path(root) / name
@@ -167,12 +170,26 @@ def scan_library(db: Session, settings: Settings, task: Task | None = None) -> T
                     db.add(video)
                     db.flush()
                 elif video.size_bytes != stat.st_size or video.mtime != stat.st_mtime:
+                    if video.thumbnail_path:
+                        old_thumbnail = (settings.data_root / video.thumbnail_path).resolve()
+                        try:
+                            if old_thumbnail.exists() and settings.data_root.resolve() in old_thumbnail.parents:
+                                old_thumbnail.unlink()
+                        except OSError:
+                            pass
                     video.filename = path.name
                     video.extension = path.suffix.lower()
                     video.size_bytes = stat.st_size
                     video.mtime = stat.st_mtime
                     video.quick_fingerprint = fingerprint
                     video.strong_hash = None
+                    video.format_name = None
+                    video.duration_seconds = None
+                    video.width = None
+                    video.height = None
+                    video.video_codec = None
+                    video.audio_codec = None
+                    video.thumbnail_path = None
                 video.is_missing = False
                 if not video.strong_hash:
                     video.strong_hash = partial_hash(path)

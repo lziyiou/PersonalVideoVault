@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
@@ -49,6 +49,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def reload_vault_config(request: Request, call_next):
+    settings.reload_vault_config_if_changed()
+    return await call_next(request)
 
 
 @app.get("/api/health")
@@ -138,12 +144,14 @@ def app_settings() -> dict:
         "data_root": str(settings.data_root),
         "username": settings.username,
         "config_path": str(settings.config_path),
-        "docker_note": "If Docker maps a host folder to /media, change the host path in compose or .env and restart the service.",
+        "docker_note": "Docker 模式下只能填写 API 容器内可见路径。宿主机视频目录会挂载为 /media；如需更换宿主机目录，请修改 .env 的 MEDIA_ROOT 后重启 Docker Compose。",
     }
 
 
 @app.patch("/api/settings", dependencies=[Depends(require_auth)])
-def update_settings(payload: AppSettingsUpdate) -> dict:
+def update_settings(payload: AppSettingsUpdate, response: Response) -> dict:
+    old_username = settings.username
+    auth_changed = False
     if payload.media_root is not None:
         media_root = Path(payload.media_root).expanduser().resolve()
         if not media_root.exists() or not media_root.is_dir():
@@ -154,12 +162,18 @@ def update_settings(payload: AppSettingsUpdate) -> dict:
         if not username:
             raise HTTPException(status_code=400, detail="Username cannot be empty.")
         settings.username = username
+        auth_changed = username != old_username
     if payload.password is not None:
         if len(payload.password) < 4:
             raise HTTPException(status_code=400, detail="Password must be at least 4 characters.")
         settings.set_password(payload.password)
+        auth_changed = True
     settings.save_vault_config()
-    return app_settings()
+    if auth_changed:
+        clear_session_cookie(response)
+    data = app_settings()
+    data["auth_changed"] = auth_changed
+    return data
 
 
 @app.get("/api/videos/{video_id}", dependencies=[Depends(require_auth)])

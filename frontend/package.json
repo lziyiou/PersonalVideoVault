@@ -6,13 +6,12 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "typescript": "latest",
+    "hls.js": "latest",
+    "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "lucide-react": "latest",
-    "hls.js": "latest"
-  },
-  "devDependencies": {}
+    "react-router-dom": "^7.15.1",
+    "typescript": "latest",
+    "vite": "latest"
+  }
 }
-

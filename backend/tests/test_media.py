@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from app.config import Settings
-from app.media import quick_fingerprint, relative_to_media_root, safe_media_path
+from app.media import quick_fingerprint, relative_to_media_root, safe_media_path, scan_library
+from app.models import Task
 
 
 def test_safe_media_path_blocks_escape(tmp_path: Path):
@@ -33,3 +34,16 @@ def test_quick_fingerprint_changes_with_file_identity():
 
     assert first != second
 
+
+def test_scan_fails_when_media_root_is_missing(tmp_path: Path, db_session):
+    settings = Settings()
+    settings.media_root = tmp_path / "missing"
+    settings.data_root = tmp_path / ".video-vault"
+    task = Task(task_type="scan", status="queued")
+    db_session.add(task)
+    db_session.commit()
+
+    scan_library(db_session, settings, task)
+
+    assert task.status == "failed"
+    assert "Media root is not available" in (task.message or "")
